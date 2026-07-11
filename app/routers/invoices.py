@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
+from app.auth import get_current_user
 from app import models, schemas
 from app.services.pdf_service import render_invoice_pdf
 
@@ -14,16 +15,27 @@ router = APIRouter(tags=["invoices"])
 
 # ---- internal helpers -------------------------------------------------
 
-def get_invoice_or_404(invoice_id: str, db: Session) -> models.Invoice:
+def get_invoice_or_404(invoice_id: str, current_user: models.User, db: Session) -> models.Invoice:
     invoice = (
         db.query(models.Invoice)
         .options(joinedload(models.Invoice.line_items), joinedload(models.Invoice.client))
-        .filter(models.Invoice.id == invoice_id)
+        .filter(models.Invoice.id == invoice_id, models.Invoice.user_id == current_user.id)
         .first()
     )
     if invoice is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
     return invoice
+
+
+def get_owned_client_or_404(client_id: str, current_user: models.User, db: Session) -> models.Client:
+    client = (
+        db.query(models.Client)
+        .filter(models.Client.id == client_id, models.Client.user_id == current_user.id)
+        .first()
+    )
+    if client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return client
 
 
 def get_line_item_or_404(line_item_id: str, db: Session) -> models.LineItem:
@@ -86,12 +98,18 @@ def generate_invoice_number(db: Session) -> str:
 # ---- invoice endpoints --------------------------------------------------
 
 @router.post("/invoices", response_model=schemas.InvoiceOut, status_code=201)
-def create_invoice(payload: schemas.InvoiceCreate, db: Session = Depends(get_db)):
-    client = db.query(models.Client).filter(models.Client.id == payload.client_id).first()
-    if client is None:
-        raise HTTPException(status_code=404, detail="Client not found")
+def create_invoice(
+    payload: schemas.InvoiceCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Confirms the client both exists AND belongs to this user -- creating an
+    # invoice against someone else's client returns 404, same as any other
+    # cross-user access attempt in this API.
+    get_owned_client_or_404(payload.client_id, current_user, db)
 
     invoice = models.Invoice(
+        user_id=current_user.id,
         invoice_number=generate_invoice_number(db),
         client_id=payload.client_id,
         issue_date=payload.issue_date,
@@ -126,6 +144,7 @@ VALID_STATUS_FILTERS = {"draft", "sent", "paid", "overdue"}
 def list_invoices(
     client_id: Optional[str] = None,
     status: Optional[str] = None,
+    current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     if status is not None and status not in VALID_STATUS_FILTERS:
@@ -134,7 +153,11 @@ def list_invoices(
             detail=f"status must be one of {sorted(VALID_STATUS_FILTERS)}",
         )
 
-    query = db.query(models.Invoice).options(joinedload(models.Invoice.line_items))
+    query = (
+        db.query(models.Invoice)
+        .options(joinedload(models.Invoice.line_items))
+        .filter(models.Invoice.user_id == current_user.id)
+    )
     if client_id is not None:
         query = query.filter(models.Invoice.client_id == client_id)
 
@@ -151,14 +174,23 @@ def list_invoices(
 
 
 @router.get("/invoices/{invoice_id}", response_model=schemas.InvoiceOut)
-def get_invoice(invoice_id: str, db: Session = Depends(get_db)):
-    invoice = get_invoice_or_404(invoice_id, db)
+def get_invoice(
+    invoice_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    invoice = get_invoice_or_404(invoice_id, current_user, db)
     return serialize_invoice(invoice)
 
 
 @router.patch("/invoices/{invoice_id}", response_model=schemas.InvoiceOut)
-def update_invoice(invoice_id: str, payload: schemas.InvoiceUpdate, db: Session = Depends(get_db)):
-    invoice = get_invoice_or_404(invoice_id, db)
+def update_invoice(
+    invoice_id: str,
+    payload: schemas.InvoiceUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    invoice = get_invoice_or_404(invoice_id, current_user, db)
     ensure_draft(invoice)
 
     updates = payload.model_dump(exclude_unset=True)
@@ -174,8 +206,12 @@ def update_invoice(invoice_id: str, payload: schemas.InvoiceUpdate, db: Session 
 
 
 @router.delete("/invoices/{invoice_id}", status_code=204)
-def delete_invoice(invoice_id: str, db: Session = Depends(get_db)):
-    invoice = get_invoice_or_404(invoice_id, db)
+def delete_invoice(
+    invoice_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    invoice = get_invoice_or_404(invoice_id, current_user, db)
     ensure_draft(invoice)
     db.delete(invoice)
     db.commit()
@@ -184,8 +220,13 @@ def delete_invoice(invoice_id: str, db: Session = Depends(get_db)):
 # ---- line item endpoints -------------------------------------------------
 
 @router.post("/invoices/{invoice_id}/line-items", response_model=schemas.InvoiceOut, status_code=201)
-def add_line_item(invoice_id: str, payload: schemas.LineItemCreate, db: Session = Depends(get_db)):
-    invoice = get_invoice_or_404(invoice_id, db)
+def add_line_item(
+    invoice_id: str,
+    payload: schemas.LineItemCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    invoice = get_invoice_or_404(invoice_id, current_user, db)
     ensure_draft(invoice)
 
     line_total = (payload.quantity * payload.unit_price).quantize(Decimal("0.01"))
@@ -205,9 +246,14 @@ def add_line_item(invoice_id: str, payload: schemas.LineItemCreate, db: Session 
 
 
 @router.patch("/line-items/{line_item_id}", response_model=schemas.InvoiceOut)
-def update_line_item(line_item_id: str, payload: schemas.LineItemUpdate, db: Session = Depends(get_db)):
+def update_line_item(
+    line_item_id: str,
+    payload: schemas.LineItemUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     line_item = get_line_item_or_404(line_item_id, db)
-    invoice = get_invoice_or_404(line_item.invoice_id, db)
+    invoice = get_invoice_or_404(line_item.invoice_id, current_user, db)
     ensure_draft(invoice)
 
     updates = payload.model_dump(exclude_unset=True)
@@ -223,9 +269,13 @@ def update_line_item(line_item_id: str, payload: schemas.LineItemUpdate, db: Ses
 
 
 @router.delete("/line-items/{line_item_id}", response_model=schemas.InvoiceOut)
-def delete_line_item(line_item_id: str, db: Session = Depends(get_db)):
+def delete_line_item(
+    line_item_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     line_item = get_line_item_or_404(line_item_id, db)
-    invoice = get_invoice_or_404(line_item.invoice_id, db)
+    invoice = get_invoice_or_404(line_item.invoice_id, current_user, db)
     ensure_draft(invoice)
 
     db.delete(line_item)
@@ -241,8 +291,12 @@ def delete_line_item(line_item_id: str, db: Session = Depends(get_db)):
 # ---- status transitions ---------------------------------------------------
 
 @router.post("/invoices/{invoice_id}/send", response_model=schemas.InvoiceOut)
-def send_invoice(invoice_id: str, db: Session = Depends(get_db)):
-    invoice = get_invoice_or_404(invoice_id, db)
+def send_invoice(
+    invoice_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    invoice = get_invoice_or_404(invoice_id, current_user, db)
     if invoice.status != models.InvoiceStatus.draft:
         raise HTTPException(
             status_code=400,
@@ -259,8 +313,12 @@ def send_invoice(invoice_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/invoices/{invoice_id}/mark-paid", response_model=schemas.InvoiceOut)
-def mark_invoice_paid(invoice_id: str, db: Session = Depends(get_db)):
-    invoice = get_invoice_or_404(invoice_id, db)
+def mark_invoice_paid(
+    invoice_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    invoice = get_invoice_or_404(invoice_id, current_user, db)
     # Note: this also covers the "overdue" case -- overdue is a display-only view
     # over a sent invoice (see _is_overdue), so the real stored status here is
     # still `sent`, and marking it paid works exactly the same way.
@@ -280,8 +338,12 @@ def mark_invoice_paid(invoice_id: str, db: Session = Depends(get_db)):
 # ---- PDF ---------------------------------------------------------------
 
 @router.get("/invoices/{invoice_id}/pdf")
-def get_invoice_pdf(invoice_id: str, db: Session = Depends(get_db)):
-    invoice = get_invoice_or_404(invoice_id, db)
+def get_invoice_pdf(
+    invoice_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    invoice = get_invoice_or_404(invoice_id, current_user, db)
     pdf_bytes = render_invoice_pdf(invoice, invoice.client)
     filename = f"invoice-{invoice.invoice_number}.pdf"
     return Response(

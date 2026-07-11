@@ -4,7 +4,7 @@ from fastapi import FastAPI
 
 from app.database import Base, engine
 from app import models  # noqa: F401 -- registers models on Base.metadata before create_all
-from app.routers import clients, invoices
+from app.routers import auth, clients, invoices
 
 
 @asynccontextmanager
@@ -18,6 +18,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Invoice Generator API", lifespan=lifespan)
 
+app.include_router(auth.router)
 app.include_router(clients.router)
 app.include_router(invoices.router)
 

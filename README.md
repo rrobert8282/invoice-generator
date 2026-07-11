@@ -42,10 +42,36 @@ Run the test suite:
 docker compose exec api pytest tests/ -v
 ```
 
+## Authentication
+
+Every endpoint except `/health`, `/auth/register`, and `/auth/login` requires a
+JWT bearer token. Multi-tenant: each user only sees and can act on their own
+clients and invoices — accessing another user's data returns 404, not 403 (so
+the API never confirms whether a given ID exists at all for a user it doesn't
+belong to).
+
+```bash
+# Register
+curl -X POST http://localhost:8000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "you@example.com", "password": "a-real-password"}'
+
+# Log in (form-encoded, not JSON -- this is what makes the FastAPI docs'
+# "Authorize" button work out of the box)
+curl -X POST http://localhost:8000/auth/login \
+  -d "username=you@example.com&password=a-real-password"
+
+# Use the returned access_token on every other request
+curl http://localhost:8000/clients \
+  -H "Authorization: Bearer <token>"
+```
+
 ## API overview
 
 | Method | Endpoint | Description |
 |---|---|---|
+| POST | `/auth/register` | Create a user account |
+| POST | `/auth/login` | Log in, returns a JWT access token |
 | POST | `/clients` | Create a client |
 | GET | `/clients` | List clients |
 | GET | `/clients/{id}` | Get a client |
@@ -65,12 +91,10 @@ docker compose exec api pytest tests/ -v
 
 ## Known gaps
 
-- **No authentication yet.** Every endpoint is currently open. JWT auth
-  (reusing the pattern from an earlier project) is planned before this is
-  deployed anywhere public — not yet implemented.
 - **No email delivery.** PDFs are generated on demand, not sent automatically.
 - **Invoice numbers aren't gap-proof.** They're derived by counting existing
   invoices per year, so a deleted invoice can leave a gap in the sequence.
+- **No password reset flow.** Registration and login only, for now.
 
 ## Future work
 

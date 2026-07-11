@@ -18,16 +18,29 @@ class InvoiceStatus(str, enum.Enum):
     paid = "paid"
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    email = Column(String, unique=True, nullable=False, index=True)
+    hashed_password = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    clients = relationship("Client", back_populates="owner", cascade="all, delete-orphan")
+
+
 class Client(Base):
     __tablename__ = "clients"
 
     id = Column(String, primary_key=True, default=gen_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
     name = Column(String, nullable=False)
     email = Column(String, nullable=False)
     phone = Column(String, nullable=True)
     address = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    owner = relationship("User", back_populates="clients")
     invoices = relationship("Invoice", back_populates="client", cascade="all, delete-orphan")
 
 
@@ -35,6 +48,9 @@ class Invoice(Base):
     __tablename__ = "invoices"
 
     id = Column(String, primary_key=True, default=gen_uuid)
+    # Denormalized from client.user_id -- kept directly on Invoice so listing/filtering
+    # a user's invoices doesn't require a join through Client on every request.
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
     invoice_number = Column(String, unique=True, nullable=False)
     client_id = Column(String, ForeignKey("clients.id"), nullable=False)
     status = Column(Enum(InvoiceStatus), default=InvoiceStatus.draft, nullable=False)
