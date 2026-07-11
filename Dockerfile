@@ -24,4 +24,10 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Migrations run before the server starts, by default, on every boot -- this is
+# what makes the image itself correct on any platform (Render, another host,
+# your own machine) without needing a platform-specific start command override.
+# docker-compose.yml overrides this locally for --reload during dev, but this
+# is what Render (which only reads the Dockerfile, not docker-compose.yml) will
+# actually run.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
