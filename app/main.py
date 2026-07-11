@@ -2,17 +2,15 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.database import Base, engine
-from app import models  # noqa: F401 -- registers models on Base.metadata before create_all
 from app.routers import auth, clients, invoices
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Phase 0: create tables directly so the app boots without a manual migration step.
-    # Once Alembic migrations are established, replace this with `alembic upgrade head`
-    # run before the app starts (e.g. in the Docker CMD or a Render deploy hook).
-    Base.metadata.create_all(bind=engine)
+    # Schema is now managed by Alembic migrations (see docker-compose.yml's
+    # api command, which runs `alembic upgrade head` before starting uvicorn),
+    # not by create_all(). This is what makes schema changes safe against a
+    # real database with real data, instead of requiring a full wipe each time.
     yield
 
 
