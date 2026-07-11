@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+    @page {
+        size: letter;
+        margin: 2.2cm 2cm;
+        @bottom-center {
+            content: "Thank you for your business.";
+            font-size: 8pt;
+            color: #9aa0a6;
+        }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+        font-family: 'Helvetica Neue', Arial, sans-serif;
+        font-size: 10.5pt;
+        color: #1f2937;
+        margin: 0;
+    }
+
+    .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        border-bottom: 3px solid #2563eb;
+        padding-bottom: 16px;
+        margin-bottom: 28px;
+    }
+
+    .business-name {
+        font-size: 20pt;
+        font-weight: 700;
+        color: #111827;
+        margin: 0;
+    }
+
+    .invoice-meta {
+        text-align: right;
+    }
+
+    .invoice-title {
+        font-size: 22pt;
+        font-weight: 700;
+        color: #2563eb;
+        margin: 0 0 6px 0;
+        letter-spacing: 1px;
+    }
+
+    .invoice-number {
+        font-size: 10.5pt;
+        color: #4b5563;
+    }
+
+    .status-badge {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 3px 12px;
+        border-radius: 12px;
+        font-size: 8.5pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .status-draft   { background: #f3f4f6; color: #4b5563; }
+    .status-sent    { background: #dbeafe; color: #1d4ed8; }
+    .status-paid    { background: #dcfce7; color: #15803d; }
+    .status-overdue { background: #fee2e2; color: #b91c1c; }
+
+    .info-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 28px;
+    }
+
+    .info-block h3 {
+        font-size: 8.5pt;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #9ca3af;
+        margin: 0 0 6px 0;
+    }
+
+    .info-block p {
+        margin: 0 0 2px 0;
+        line-height: 1.4;
+    }
+
+    .info-block .name {
+        font-weight: 700;
+        font-size: 11.5pt;
+        color: #111827;
+    }
+
+    table.line-items {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 24px;
+    }
+
+    table.line-items thead th {
+        text-align: left;
+        font-size: 8.5pt;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #6b7280;
+        border-bottom: 2px solid #e5e7eb;
+        padding: 8px 6px;
+    }
+
+    table.line-items th.num, table.line-items td.num {
+        text-align: right;
+    }
+
+    table.line-items tbody tr:nth-child(even) {
+        background: #f9fafb;
+    }
+
+    table.line-items td {
+        padding: 9px 6px;
+        border-bottom: 1px solid #f0f1f3;
+    }
+
+    .totals {
+        width: 260px;
+        margin-left: auto;
+        margin-bottom: 28px;
+    }
+
+    .totals .row {
+        display: flex;
+        justify-content: space-between;
+        padding: 5px 0;
+        font-size: 10.5pt;
+    }
+
+    .totals .row.total {
+        border-top: 2px solid #2563eb;
+        margin-top: 4px;
+        padding-top: 10px;
+        font-size: 13pt;
+        font-weight: 700;
+        color: #111827;
+    }
+
+    .notes {
+        border-top: 1px solid #e5e7eb;
+        padding-top: 16px;
+        font-size: 9.5pt;
+        color: #4b5563;
+    }
+
+    .notes h3 {
+        font-size: 8.5pt;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #9ca3af;
+        margin: 0 0 6px 0;
+    }
+</style>
+</head>
+<body>
+
+    <div class="header">
+        <div>
+            <p class="business-name">{{ business_name }}</p>
+        </div>
+        <div class="invoice-meta">
+            <p class="invoice-title">INVOICE</p>
+            <p class="invoice-number">{{ invoice.invoice_number }}</p>
+            <span class="status-badge status-{{ invoice.status }}">{{ invoice.status }}</span>
+        </div>
+    </div>
+
+    <div class="info-row">
+        <div class="info-block">
+            <h3>Bill To</h3>
+            <p class="name">{{ client.name }}</p>
+            {% if client.address %}<p>{{ client.address }}</p>{% endif %}
+            <p>{{ client.email }}</p>
+            {% if client.phone %}<p>{{ client.phone }}</p>{% endif %}
+        </div>
+        <div class="info-block" style="text-align: right;">
+            <h3>Details</h3>
+            <p><strong>Issue date:</strong> {{ invoice.issue_date.strftime('%b %d, %Y') }}</p>
+            <p><strong>Due date:</strong> {{ invoice.due_date.strftime('%b %d, %Y') }}</p>
+        </div>
+    </div>
+
+    <table class="line-items">
+        <thead>
+            <tr>
+                <th>Description</th>
+                <th class="num">Qty</th>
+                <th class="num">Unit Price</th>
+                <th class="num">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in invoice.line_items %}
+            <tr>
+                <td>{{ item.description }}</td>
+                <td class="num">{{ "%.2f"|format(item.quantity) }}</td>
+                <td class="num">${{ "{:,.2f}".format(item.unit_price) }}</td>
+                <td class="num">${{ "{:,.2f}".format(item.line_total) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="totals">
+        <div class="row">
+            <span>Subtotal</span>
+            <span>${{ "{:,.2f}".format(invoice.subtotal) }}</span>
+        </div>
+        {% if invoice.tax_rate and invoice.tax_rate > 0 %}
+        <div class="row">
+            <span>Tax ({{ "%.2f"|format(invoice.tax_rate) }}%)</span>
+            <span>${{ "{:,.2f}".format(invoice.tax_amount) }}</span>
+        </div>
+        {% endif %}
+        <div class="row total">
+            <span>Total</span>
+            <span>${{ "{:,.2f}".format(invoice.total) }}</span>
+        </div>
+    </div>
+
+    {% if invoice.notes %}
+    <div class="notes">
+        <h3>Notes</h3>
+        <p>{{ invoice.notes }}</p>
+    </div>
+    {% endif %}
+
+</body>
+</html>
