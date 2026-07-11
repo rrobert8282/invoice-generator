@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment secrets -- .env.example is the template, .env itself must never be committed
+.env
+
+# Local SQLite DBs used by tests
+*.db
+
+# Editor/OS cruft
+.vscode/
+.idea/
+.DS_Store
+
+# Windows/WSL download metadata
+*:Zone.Identifier

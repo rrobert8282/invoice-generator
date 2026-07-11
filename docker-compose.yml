@@ -1,0 +1,33 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://invoice_user:invoice_pass@db:5432/invoice_db
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-change-me}
+    volumes:
+      - .:/app  # mounts your local code into the container so edits show up live
+    depends_on:
+      db:
+        condition: service_healthy  # waits for Postgres to actually accept connections, not just start
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=invoice_user
+      - POSTGRES_PASSWORD=invoice_pass
+      - POSTGRES_DB=invoice_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data  # persists DB data across container restarts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U invoice_user -d invoice_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
