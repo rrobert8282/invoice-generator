@@ -5,6 +5,22 @@ professional PDF invoices. Built with FastAPI, SQLAlchemy, PostgreSQL, and Weasy
 
 ![Sample invoice PDF](docs/sample-invoice.png)
 
+## Live demo
+
+**https://invoice-generator-6bl0.onrender.com** — deployed for evaluation
+purposes (free tier, not for production use; see "Running locally" below to
+self-host). Try it via the interactive docs at
+[`/docs`](https://invoice-generator-6bl0.onrender.com/docs):
+
+1. Register a user via `POST /auth/register`, or use the seeded demo account:
+   `demo@example.com` / `demopassword123`
+2. Click **Authorize** at the top of the docs page and log in
+3. Try any endpoint directly in the browser, including downloading a real
+   generated PDF from `GET /invoices/{id}/pdf`
+
+Note: the free tier spins down after inactivity, so the first request after a
+while may take 30-60 seconds to respond while it wakes back up.
+
 ## Features
 
 - Client management (CRUD)
@@ -23,8 +39,10 @@ professional PDF invoices. Built with FastAPI, SQLAlchemy, PostgreSQL, and Weasy
 - **DB**: PostgreSQL (Neon in production, containerized Postgres for local dev)
 - **PDF**: WeasyPrint (HTML/CSS → PDF) + Jinja2 templates
 - **Migrations**: Alembic
-- **Tests**: pytest, 41 tests covering CRUD, totals math, status transitions,
-  draft-lock enforcement, filtering, and PDF generation
+- **Tests**: pytest, 57 tests covering CRUD, totals math, status transitions,
+  draft-lock enforcement, filtering, auth/multi-tenant isolation, and PDF
+  generation (including extracting real text from generated PDFs to verify
+  content, not just checking the file is well-formed)
 
 ## Running locally
 
@@ -36,10 +54,22 @@ docker compose up --build
 
 This starts the API on `http://localhost:8000` and a Postgres container. First
 build takes a few minutes (installing WeasyPrint's system dependencies).
+Database schema is managed by Alembic migrations, which run automatically
+before the server starts (see `Dockerfile`'s `CMD` / `docker-compose.yml`'s
+`command`). To generate a new migration after changing a model:
+```bash
+docker compose exec api alembic revision --autogenerate -m "describe the change"
+docker compose exec api alembic upgrade head
+```
 
 Run the test suite:
 ```bash
 docker compose exec api pytest tests/ -v
+```
+
+Seed demo data (a demo user, 3 clients, and 4 invoices covering every status):
+```bash
+docker compose exec api python scripts/seed.py
 ```
 
 ## Authentication

@@ -360,13 +360,47 @@ def test_filter_invoices_invalid_status_rejected(client):
 
 # ---- Phase 5: PDF generation -------------------------------------------
 
+def _extract_pdf_text(pdf_bytes: bytes) -> str:
+    from io import BytesIO
+    from pypdf import PdfReader
+
+    reader = PdfReader(BytesIO(pdf_bytes))
+    return "".join(page.extract_text() for page in reader.pages)
+
+
 def test_pdf_generation_returns_valid_pdf(client):
     invoice = draft_invoice_with_item(client)
     response = client.get(f"/invoices/{invoice['id']}/pdf")
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
     assert response.content.startswith(b"%PDF-")
-    assert len(response.content) > 500  # sanity check it's not an empty/broken PDF
+    # A real rendered invoice is comfortably several KB -- a near-empty/broken
+    # render (e.g. an empty template) produces a "valid" PDF under ~1KB, which
+    # a weaker ">500 bytes" check would silently let through undetected.
+    assert len(response.content) > 3000
+
+
+def test_pdf_contains_actual_invoice_content(client):
+    # This is the test that would have caught the empty-template bug: it
+    # doesn't just check the PDF is well-formed, it extracts the real text
+    # and confirms the data we sent in is actually visible on the page.
+    c = make_client(client, name="Distinctive Client Name", email="distinctive@example.com")
+    invoice = client.post(
+        "/invoices",
+        json=invoice_payload(
+            c["id"],
+            line_items=[{"description": "Uniquely Named Consulting Work", "quantity": "1", "unit_price": "999.00"}],
+        ),
+    ).json()
+
+    response = client.get(f"/invoices/{invoice['id']}/pdf")
+    assert response.status_code == 200
+    text = _extract_pdf_text(response.content)
+
+    assert "Distinctive Client Name" in text
+    assert "Uniquely Named Consulting Work" in text
+    assert invoice["invoice_number"] in text
+    assert "999.00" in text
 
 
 def test_pdf_has_download_filename(client):
@@ -391,14 +425,18 @@ def test_pdf_generation_multiple_line_items(client):
     ).json()
     response = client.get(f"/invoices/{invoice['id']}/pdf")
     assert response.status_code == 200
-    assert response.content.startswith(b"%PDF-")
+    text = _extract_pdf_text(response.content)
+    assert "Design" in text
+    assert "Development" in text
+    assert "QA" in text
 
 
 def test_pdf_generation_no_tax_no_notes(client):
     invoice = draft_invoice_with_item(client)  # default: no tax, no notes
     response = client.get(f"/invoices/{invoice['id']}/pdf")
     assert response.status_code == 200
-    assert response.content.startswith(b"%PDF-")
+    text = _extract_pdf_text(response.content)
+    assert "Tax" not in text  # tax row should be hidden when tax_rate is 0
 
 
 def test_pdf_generation_404_for_missing_invoice(client):

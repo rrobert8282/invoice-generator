@@ -24,6 +24,4 @@ def render_invoice_pdf(invoice: models.Invoice, client: models.Client) -> bytes:
         client=client,
         business_name=BUSINESS_NAME,
     )
-    print(f"[pdf_service] rendered HTML length: {len(html_content)} chars", flush=True)
-    print(f"[pdf_service] HTML preview: {html_content[:500]!r}", flush=True)
     return HTML(string=html_content).write_pdf()
